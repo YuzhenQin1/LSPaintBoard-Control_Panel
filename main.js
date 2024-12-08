@@ -252,7 +252,7 @@ setInterval(() => {
 }, 20);
 
 function uintToUint8Array(uint, bytes) {
-	const array = newUint8Array(bytes);
+	const array = new Uint8Array(bytes);
 	for (let i = 0; i < bytes; i++) {
 		array[i] = uint & 0xff;
 		uint = uint >> 8;
