@@ -512,7 +512,6 @@ async function SdrawTask(imagePath, startX, startY) {
 			broadcastLog('绘画任务已停止。');
 			return;
 		}
-		/*
 		for (let y = 0; y < height; y++) {
 			for (let x = 0; x < width; x++) {
 				let px = getRandomInt(0, width - 1), py = getRandomInt(0, height - 1);
@@ -527,20 +526,22 @@ async function SdrawTask(imagePath, startX, startY) {
 				if (chunks.length % mod == 0) await delay(1);
 			}
 		}
-		*/
-		await loadBoard();
-		for (let pos of pointQueue) {
-			const pixel = getPixelAt(pos.x, pos.y);
-			const tk = getNextToken();
-			paint(tk.uid, tk.token, pixel.r, pixel.g, pixel.b, pos.x + startX, pos.y + startY);
-			if (stopDrawing) {
-				isDrawing = false;
-				broadcastLog('绘画任务已停止。');
-				return;
+		for (let i = 1; i <= 20; i++) {
+			await loadBoard();
+			shuffleArray(pointQueue);
+			for (let pos of pointQueue) {
+				const pixel = getPixelAt(pos.x, pos.y);
+				const tk = getNextToken();
+				paint(tk.uid, tk.token, pixel.r, pixel.g, pixel.b, pos.x + startX, pos.y + startY);
+				if (stopDrawing) {
+					isDrawing = false;
+					broadcastLog('绘画任务已停止。');
+					return;
+				}
+				if (chunks.length % mod == 0) await delay(1);
 			}
-			if (chunks.length % mod == 0) await delay(1);
+			pointQueue = [];
 		}
-		pointQueue = [];
 		setImmediate(drawTask); // 重新启动绘画任务
 	};
 	drawTask();
