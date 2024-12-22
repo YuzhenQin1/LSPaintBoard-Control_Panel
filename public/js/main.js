@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 	const imageDropdown = document.getElementById('imageDropdown');
 	const tokenList = document.getElementById('tokenList');
 
+	$("#paintProgress").progress({ percent: 0 });
+
 	const logSocket = new WebSocket(`ws://${window.location.hostname}:3000`);
 	logSocket.onmessage = (event) => {
 		addLog(event.data);
@@ -20,11 +22,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 		const recieveRate = data.recieveRate.toFixed(2);
 		const coloredRate = data.coloredRate.toFixed(2);
 		const buffer = data.buffer;
+		const queueTotal = data.queueTotal;
+		const queuePos = data.queuePos;
 		document.getElementById('paintRate').innerText = `绘画速率： ${paintRate} px/s`;
 		document.getElementById('coloredRate').innerText = `着色速度： ${coloredRate} px/s`;
 		document.getElementById('attackRate').innerText = `压力大小： ${attackRate} px/s`;
 		document.getElementById('recieveRate').innerText = `应答速率： ${recieveRate} req/s`;
 		document.getElementById('wsBuffer').innerText = `缓冲大小： ${buffer} B`;
+		document.getElementById('paintProgressTitle').innerText = `绘画进度 (${queuePos}/${queueTotal})`;
+		const paintedRate = queueTotal ? (queuePos / queueTotal * 100.0) : 0;
+		$("#paintProgress").progress({ percent: paintedRate });
 	};
 
 	// Function to add a log entry
@@ -223,13 +230,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 	});
 
 	$('#slider-mod').range({
-		min: 1,
-		max: 1000,
+		min: 0,
+		max: 60000,
 		start: (await getInfo()).mod,
-		step: 1,
+		step: 1000,
 		onChange: async function (value) {
 			const simValue = document.getElementById('modValue');
-			simValue.innerText = `停顿间隔 (${value})`;
+			simValue.innerText = `绘版 CD (${value})`;
 			await fetch('/api/setmod', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },

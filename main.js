@@ -123,6 +123,7 @@ let paintCnt = 0;
 let attackCnt = 0;
 let recieveCnt = 0;
 let coloredCnt = 0;
+let queueTotal = 0, queuePos = 0;
 
 setInterval(() => {
 	let paintRate = paintCnt / 3.0;
@@ -134,7 +135,7 @@ setInterval(() => {
 	paintCnt = 0;
 	recieveCnt = 0;
 	coloredCnt = 0;
-	reportMsg(JSON.stringify({ paintRate, attackRate, recieveRate, coloredRate, buffer }));
+	reportMsg(JSON.stringify({ paintRate, attackRate, recieveRate, coloredRate, buffer, queueTotal, queuePos }));
 }, 3000);
 
 function connect() {
@@ -147,7 +148,7 @@ function connect() {
 		broadcastLog(message);
 	};
 
-	ws.onmessage = (event) => {
+	ws.onmessage = async (event) => {
 		const buffer = event.data;
 		const dataView = new DataView(buffer);
 		let offset = 0;
@@ -162,12 +163,14 @@ function connect() {
 					const colorG = dataView.getUint8(offset + 5);
 					const colorB = dataView.getUint8(offset + 6);
 					offset += 7;
-					if (processAttack) processAttack(x, y, colorR, colorG, colorB);
+					if (processAttack) await processAttack(x, y, colorR, colorG, colorB);
 					break;
 				}
 				case 0xfc: {
 					ws.send(new Uint8Array([0xfb]));
-					const message = '成功与服务器握手，连接建立。';
+					let message = "";
+					if (!status) message = '成功与服务器握手，连接建立。';
+					else return;
 					if (!status && needRestart) {
 						try {
 							SdrawTask(lstPath, lstStartX, lstStartY);
@@ -211,7 +214,7 @@ function connect() {
 
 	ws.onclose = (err) => {
 		const reason = err.reason ? err.reason : "Unknown";
-		const message = `WebSocket 已经关闭 (${err.code}: ${reason})，五秒后重连。`;
+		const message = `WebSocket 已经关闭 (${err.code}: ${reason})，尝试重连。`;
 		console.log(message);
 		if (isDrawing) needRestart = true;
 		stopDrawing = true;
@@ -219,7 +222,7 @@ function connect() {
 		broadcastLog(message);
 		status = false;
 		processAttack = null;
-		setTimeout(connect, 5000);
+		setTimeout(connect, 0);
 	};
 }
 
@@ -249,7 +252,7 @@ setInterval(() => {
 	if (chunks.length > 0 && ws.readyState === WebSocket.OPEN) {
 		ws.send(getMergedData());
 	}
-}, 20);
+}, 1000 / 50.0);
 
 function uintToUint8Array(uint, bytes) {
 	const array = new Uint8Array(bytes);
@@ -349,9 +352,10 @@ app.post('/api/paintboard/token', async (req, res) => {
 // 读取 tokens 文件
 
 let fTokens = [];
-let idx = 0, fmax = 0, sim = 150, mod = 100;
+let idx = 0, fmax = 0, sim = 5, mod = 30000;
 
-function getNextToken() {
+async function getNextToken() {
+	await delay(Math.ceil(mod / fmax));
 	let res = fTokens[idx];
 	idx += 1;
 	if (idx >= fmax) idx = 0;
@@ -425,6 +429,7 @@ function delay(ms) {
 let pointQueue = [];
 
 async function SdrawTask(imagePath, startX, startY) {
+	// 绘画任务的主函数
 
 	isDrawing = true;
 	stopDrawing = false;
@@ -444,13 +449,48 @@ async function SdrawTask(imagePath, startX, startY) {
 	};
 
 	function calculateColorDistance(color1, color2) {
+		// 计算三维距离
 		const r1 = color1.r, g1 = color1.g, b1 = color1.b;
 		const r2 = color2.r, g2 = color2.g, b2 = color2.b;
 		const distance = Math.sqrt(Math.pow(r1 - r2, 2) + Math.pow(g1 - g2, 2) + Math.pow(b1 - b2, 2));
 		return distance;
 	}
 
-	processAttack = (x, y, r, g, b) => {
+	function shuffleArray(array) {
+		for (let i = array.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[array[i], array[j]] = [array[j], array[i]];
+		}
+	}
+
+	async function loadBoard() {
+		// 加载绘版上的错误像素
+		await fetch(`${BASE_URL}/paintboard/getboard`)
+			.then(response => {
+				if (!response.ok) {
+					broadcastLog(`获取绘版信息失败：${response.status}`);
+					return new ArrayBuffer();
+				}
+				return response.arrayBuffer();
+			})
+			.then(arrayBuffer => {
+				const byteArray = new Uint8Array(arrayBuffer);
+				for (let y = 0; y < 600; y++) {
+					for (let x = 0; x < 1000; x++) {
+						if (x < xL || x > xR) continue;
+						if (y < yL || y > yR) continue;
+						const idx = (y * 1000 + x) * 3;
+						let r = byteArray[idx], g = byteArray[idx + 1], b = byteArray[idx + 2];
+						const pixel = { r, g, b };
+						const realPixel = getPixelAt(x - xL, y - yL);
+						if (calculateColorDistance(pixel, realPixel) <= sim) continue;
+						pointQueue.push({ x: x - xL, y: y - yL });
+					}
+				}
+			}).catch(error => broadcastLog(`获取绘版信息失败：${error}`));
+	}
+
+	processAttack = async (x, y, r, g, b) => {
 		if (x < xL || x > xR) return;
 		if (y < yL || y > yR) return;
 		let realX = x - startX, realY = y - startY;
@@ -459,8 +499,8 @@ async function SdrawTask(imagePath, startX, startY) {
 		if (calculateColorDistance(realPixel, correctPixel) <= sim) {
 			return;
 		}
-		const tk = getNextToken();
-		paint(tk.uid, tk.token, correctPixel.r, correctPixel.g, correctPixel.b, x, y);
+		// const tk = await getNextToken();
+		// paint(tk.uid, tk.token, correctPixel.r, correctPixel.g, correctPixel.b, x, y);
 		attackCnt++;
 	}
 
@@ -472,24 +512,49 @@ async function SdrawTask(imagePath, startX, startY) {
 
 	const drawTask = async () => {
 		if (stopDrawing) {
+			queuePos = 0;
+			queueTotal = 0;
 			isDrawing = false; // 停止任务
 			broadcastLog('绘画任务已停止。');
 			return;
 		}
+		/*
 		for (let y = 0; y < height; y++) {
 			for (let x = 0; x < width; x++) {
 				let px = getRandomInt(0, width - 1), py = getRandomInt(0, height - 1);
 				const pixel = getPixelAt(px, py);
-				const tk = getNextToken();
+				const tk = await getNextToken();
 				paint(tk.uid, tk.token, pixel.r, pixel.g, pixel.b, px + startX, py + startY);
 				if (stopDrawing) {
 					isDrawing = false;
 					broadcastLog('绘画任务已停止。');
 					return;
 				}
-				if (chunks.length % mod == 0) await delay(1);
 			}
 		}
+		*/
+		// for (let i = 1; i <= 20; i++) {
+
+		await loadBoard();
+		// shuffleArray(pointQueue);
+		broadcastLog(`队列已刷新，目前队列长度：${pointQueue.length}。`);
+		queueTotal = pointQueue.length;
+		queuePos = 0;
+		for (let pos of pointQueue) {
+			const pixel = getPixelAt(pos.x, pos.y);
+			const tk = await getNextToken();
+			paint(tk.uid, tk.token, pixel.r, pixel.g, pixel.b, pos.x + startX, pos.y + startY);
+			if (stopDrawing) {
+				isDrawing = false;
+				broadcastLog('绘画任务已停止。');
+				queueTotal = 0;
+				queuePos = 0;
+				return;
+			}
+			queuePos += 1;
+		}
+		pointQueue = [];
+		// }
 		setImmediate(drawTask); // 重新启动绘画任务
 	};
 	drawTask();
