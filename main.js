@@ -88,6 +88,91 @@ app.get('/', (req, res) => {
 	res.render('index.html');
 });
 
+import { createCanvas } from 'canvas';
+
+let heatmap = [];
+
+const clear_heatmap = () => {
+	while(heatmap.length && heatmap[0][0] < Date.now() - 300 * 1000) {
+		heatmap.shift();
+	}
+}
+
+app.get('/heatmap.png', (req, res) => {
+	const hsv2rgb = (h, s, v) => {
+		var r, g, b, i, f, p, q, t;
+		i = Math.floor(h * 6);
+		f = h * 6 - i;
+		p = v * (1 - s);
+		q = v * (1 - f * s);
+		t = v * (1 - (1 - f) * s);
+		switch (i % 6) {
+			case 0: r = v, g = t, b = p; break;
+			case 1: r = q, g = v, b = p; break;
+			case 2: r = p, g = v, b = t; break;
+			case 3: r = p, g = q, b = v; break;
+			case 4: r = t, g = p, b = v; break;
+			case 5: r = v, g = p, b = q; break;
+		}
+		return {
+			r: Math.round(r * 255),
+			g: Math.round(g * 255),
+			b: Math.round(b * 255)
+		};
+	};
+
+	clear_heatmap();
+
+	const map = new Map();
+	let maximum = 0;
+
+	heatmap.forEach((item) => {
+		const key = [item[1], item[2]].toString();
+		if(map.has(key)) {
+			map.set(key, map.get(key) + 1);
+			if(map.get(key) > maximum) {
+				maximum = map.get(key);
+			}
+		} else {
+			map.set(key, 1);
+			if(1 > maximum) {
+				maximum = 1;
+			}
+		}
+	});
+
+	const canvas = createCanvas(1000, 600);
+	const ctx = canvas.getContext('2d');
+	const canvasData = ctx.getImageData(0, 0, 1000, 600);
+
+	const drawPixel = (x, y, r, g, b, a) => {
+		const index = (x + y * 1000) * 4;
+		canvasData.data[index + 0] = r;
+		canvasData.data[index + 1] = g;
+		canvasData.data[index + 2] = b;
+		canvasData.data[index + 3] = a;
+	}
+
+	const background = hsv2rgb(0.7, 1, 1);
+
+	for(let x = 0; x < 1000; x++) {
+		for(let y = 0; y < 600; y++) {
+			if(map.has([x, y].toString())) {
+				const pseudo = hsv2rgb(0.7 - map.get([x, y].toString()) * 0.7 / maximum, 1, 1);
+				drawPixel(x, y, pseudo.r, pseudo.g, pseudo.b, 255);
+			} else {
+				drawPixel(x, y, background.r, background.g, background.b, 255);
+			}
+		}
+	}
+
+	ctx.putImageData(canvasData, 0, 0);
+
+	const imageBuffer = canvas.toBuffer('image/png');
+
+	res.setHeader('Content-Type', 'image/png').send(imageBuffer);
+});
+
 import { WebSocketServer } from 'ws';
 import http from 'http';
 
@@ -169,10 +254,12 @@ function connect() {
 					const colorB = dataView.getUint8(offset + 6);
 					offset += 7;
 					if (processAttack) await processAttack(x, y, colorR, colorG, colorB);
+					heatmap.push([Date.now(), x, y]);
 					break;
 				}
 				case 0xfc: {
 					ws.send(new Uint8Array([0xfb]));
+					clear_heatmap();
 					let message = "";
 					if (!status) message = '成功与服务器握手，连接建立。';
 					else return;
