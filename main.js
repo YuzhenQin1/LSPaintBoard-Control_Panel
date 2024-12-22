@@ -62,7 +62,12 @@ app.post('/api/upload-image', upload.single('image'), async (req, res) => {
 			const r = pixels[i];
 			const g = pixels[i + 1];
 			const b = pixels[i + 2];
-			pixelData.push({ r, g, b });
+			if(channels === 4) {
+				const a = pixels[i + 3];
+				pixelData.push({ r, g, b, a });
+			} else {
+				pixelData.push({ r, g, b });
+			}
 		}
 		res.json({ width, height, pixelData });
 	} catch (error) {
@@ -445,11 +450,18 @@ async function SdrawTask(imagePath, startX, startY) {
 
 	const getPixelAt = (x, y) => {
 		const index = (y * width + x) * channels; // 每个像素占 channels 个字节（RGB/RGBA）
-		return { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
+		if(channels === 4) {
+			return { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2], a: pixels[index + 3] };
+		} else {
+			return { r: pixels[index], g: pixels[index + 1], b: pixels[index + 2] };
+		}
 	};
 
 	function calculateColorDistance(color1, color2) {
 		// 计算三维距离
+		if(("a" in color1 && color1.a === 0) || ("a" in color2 && color2.a === 0)) {
+			return 0;
+		}
 		const r1 = color1.r, g1 = color1.g, b1 = color1.b;
 		const r2 = color2.r, g2 = color2.g, b2 = color2.b;
 		const distance = Math.sqrt(Math.pow(r1 - r2, 2) + Math.pow(g1 - g2, 2) + Math.pow(b1 - b2, 2));
