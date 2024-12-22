@@ -93,11 +93,11 @@ import { createCanvas } from 'canvas';
 let heatmap = [];
 const heatmap_millseconds = 600 * 1000
 
-const clear_heatmap = () => {
+setInterval(() => {
 	while(heatmap.length && heatmap[0][0] < Date.now() - heatmap_millseconds) {
 		heatmap.shift();
 	}
-}
+}, 10000);
 
 app.get('/heatmap.png', (req, res) => {
 	const hsv2rgb = (h, s, v) => {
@@ -121,8 +121,6 @@ app.get('/heatmap.png', (req, res) => {
 			b: Math.round(b * 255)
 		};
 	};
-
-	clear_heatmap();
 
 	const map = new Map();
 	let maximum = 0;
@@ -260,7 +258,6 @@ function connect() {
 				}
 				case 0xfc: {
 					ws.send(new Uint8Array([0xfb]));
-					clear_heatmap();
 					let message = "";
 					if (!status) message = '成功与服务器握手，连接建立。';
 					else return;
