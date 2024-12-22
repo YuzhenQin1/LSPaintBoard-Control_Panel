@@ -215,9 +215,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 	$('#slider-sim').range({
 		min: 0,
-		max: 300,
+		max: 20,
 		start: (await getInfo()).sim,
-		step: 0.1,
+		step: 0.05,
 		onChange: async function (value) {
 			const simValue = document.getElementById('simValue');
 			simValue.innerText = `相似度阈值 (${value})`;

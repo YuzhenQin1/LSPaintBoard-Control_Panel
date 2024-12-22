@@ -490,6 +490,40 @@ async function SdrawTask(imagePath, startX, startY) {
 			}).catch(error => broadcastLog(`获取绘版信息失败：${error}`));
 	}
 
+	function shuffleArray(array) {
+		for (let i = array.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[array[i], array[j]] = [array[j], array[i]];
+		}
+	}
+
+	async function loadBoard() {
+		// 加载绘版上的错误像素
+		await fetch(`${BASE_URL}/paintboard/getboard`)
+			.then(response => {
+				if (!response.ok) {
+					broadcastLog(`获取绘版信息失败：${response.status}`);
+					return new ArrayBuffer();
+				}
+				return response.arrayBuffer();
+			})
+			.then(arrayBuffer => {
+				const byteArray = new Uint8Array(arrayBuffer);
+				for (let y = 0; y < 600; y++) {
+					for (let x = 0; x < 1000; x++) {
+						if (x < xL || x > xR) continue;
+						if (y < yL || y > yR) continue;
+						const idx = (y * 1000 + x) * 3;
+						let r = byteArray[idx], g = byteArray[idx + 1], b = byteArray[idx + 2];
+						const pixel = { r, g, b };
+						const realPixel = getPixelAt(x - xL, y - yL);
+						if (calculateColorDistance(pixel, realPixel) <= sim) continue;
+						pointQueue.push({ x: x - xL, y: y - yL });
+					}
+				}
+			}).catch(error => broadcastLog(`获取绘版信息失败：${error}`));
+	}
+
 	processAttack = async (x, y, r, g, b) => {
 		if (x < xL || x > xR) return;
 		if (y < yL || y > yR) return;
